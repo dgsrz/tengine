@@ -892,7 +892,7 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
 #if (NGX_HAVE_CPU_AFFINITY)
     u_char            buf[2 * sizeof(CPU_SET_T) + 1];
     u_char           *p;
-    cpu_set_t        *cpu_affinity;
+    CPU_SET_T        *cpu_affinity;
 #endif
 
     if (ngx_set_environment(cycle, NULL) == NULL) {
@@ -980,11 +980,11 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
             *p = '\0';
 
             ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
-                          "sched_setaffinity(0x%s)", buf);
+                          ngx_setaffinity_n "(0x%s)", buf);
 
             if (ngx_setaffinity(cpu_affinity) == -1) {
                 ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
-                              "sched_setaffinity(0x%s) failed", buf);
+                              ngx_setaffinity_n "(0x%s) failed", buf);
             }
         }
     }
