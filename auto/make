@@ -42,6 +42,11 @@ LINK =	$LINK
 END
 
 
+if [ $NGX_DTRACE = YES ]; then
+    echo DTRACE = $DTRACE                                     >> $NGX_MAKEFILE
+fi
+
+
 if test -n "$NGX_PERL_CFLAGS"; then
     echo NGX_PERL_CFLAGS = $NGX_PERL_CFLAGS                   >> $NGX_MAKEFILE
     echo NGX_PM_CFLAGS = $NGX_PM_CFLAGS                       >> $NGX_MAKEFILE
@@ -199,6 +204,39 @@ ngx_deps=`echo $ngx_all_objs $ngx_modules_obj $ngx_res $LINK_DEPS \
 ngx_objs=`echo $ngx_all_objs $ngx_modules_obj \
     | sed -e "s/  *\([^ ][^ ]*\)/$ngx_long_regex_cont\1/g" \
           -e "s/\//$ngx_regex_dirsep/g"`
+
+
+if [ $NGX_DTRACE = YES ]; then
+
+    cat << END                                                    >> $NGX_MAKEFILE
+
+all: $NGX_OBJS${ngx_dirsep}nginx${ngx_binext}
+
+END
+
+    for ngx_dtrace_src in $NGX_DTRACE_SRC
+    do
+        ngx_dtrace_target=`echo $ngx_dtrace_src | sed -e "s/^.*\/\(.*\)\.d/\1/g"`
+        ngx_dtrace_h=$NGX_OBJS${ngx_dirsep}${ngx_dtrace_target}_provider.h
+        ngx_dtrace_obj=$NGX_OBJS${ngx_dirsep}$ngx_dtrace_target.$ngx_objext
+
+        cat << END                                                >> $NGX_MAKEFILE
+
+$ngx_dtrace_h: $ngx_dtrace_src
+	\$(DTRACE) -xnolibs -h -o $ngx_dtrace_h -s $ngx_dtrace_src
+
+$ngx_dtrace_obj: $ngx_dtrace_src $ngx_deps$ngx_spacer
+	\$(DTRACE) -xnolibs -G -o $ngx_dtrace_obj -s $ngx_dtrace_src $ngx_objs
+
+END
+
+        ngx_deps="$ngx_dtrace_h$ngx_long_cont$ngx_deps$ngx_long_cont$ngx_dtrace_obj"
+        ngx_objs="$ngx_objs$ngx_long_cont$ngx_dtrace_obj"
+
+    done
+
+fi
+
 
 if test -n "$NGX_LD_OPT$CORE_LIBS"; then
     ngx_libs=`echo $NGX_LD_OPT $CORE_LIBS \

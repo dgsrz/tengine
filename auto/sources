@@ -178,7 +178,8 @@ UNIX_DEPS="$CORE_DEPS $EVENT_DEPS \
             src/os/unix/ngx_user.h \
             src/os/unix/ngx_pipe.h \
             src/os/unix/ngx_sysinfo.h \
-            src/os/unix/ngx_process_cycle.h"
+            src/os/unix/ngx_process_cycle.h \
+            src/os/unix/ngx_probes.h"
 
 # add to UNIX_DEPS
 #            src/os/unix/ngx_gcc_atomic_amd64.h \
@@ -588,6 +589,8 @@ NGX_GOOGLE_PERFTOOLS_MODULE=ngx_google_perftools_module
 NGX_GOOGLE_PERFTOOLS_SRCS=src/misc/ngx_google_perftools_module.c
 
 NGX_CPP_TEST_SRCS=src/misc/ngx_cpp_test_module.cpp
+
+NGX_DTRACE_SRC=""
 
 NGX_BACKTRACE_MODULE=ngx_backtrace_module
 NGX_BACKTRACE_SRCS=src/misc/ngx_backtrace_module.c

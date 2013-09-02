@@ -152,6 +152,8 @@ ngx_event_accept(ngx_event_t *ev)
             return;
         }
 
+        ngx_http_probe_accept(c);
+
 #if (NGX_STAT_STUB)
         (void) ngx_atomic_fetch_add(ngx_stat_active, 1);
 #endif
@@ -507,6 +509,8 @@ ngx_close_accepted_connection(ngx_connection_t *c)
     if (c->pool) {
         ngx_destroy_pool(c->pool);
     }
+
+    ngx_http_probe_close(c);
 
 #if (NGX_STAT_STUB)
     (void) ngx_atomic_fetch_add(ngx_stat_active, -1);

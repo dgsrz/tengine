@@ -667,6 +667,10 @@ if [ $HTTP_STUB_STATUS = YES ]; then
     HTTP_SRCS="$HTTP_SRCS src/http/modules/ngx_http_stub_status_module.c"
 fi
 
+if [ $HTTP_REQUEST_PROFILE = YES ]; then
+    have=NGX_HTTP_REQUEST_PROFILE . auto/have
+fi
+
 #if [ -r $NGX_OBJS/auto ]; then
 #    . $NGX_OBJS/auto
 #fi
@@ -889,4 +893,11 @@ END
         echo "module_stub $mod;"                  >> $NGX_MODULE_STUBS
     done
 
+fi
+
+if [ $HTTP_REQUEST_PROFILE = YES ]; then
+    NGX_DTRACE_SRC="$NGX_DTRACE_SRC src/dtrace/ngx_http_request_profile.d"
+    HTTP_DEPS="$HTTP_DEPS objs/ngx_http_request_profile_provider.h"
+    CORE_DEPS="$CORE_DEPS objs/ngx_http_request_profile_provider.h"
+    EVENT_DEPS="$EVENT_DEPS objs/ngx_http_request_profile_provider.h"
 fi

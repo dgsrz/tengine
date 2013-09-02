@@ -604,6 +604,8 @@ ngx_http_ssl_handshake(ngx_event_t *rev)
 
     c->log->action = "reading client request line";
 
+    ngx_http_probe_ssl_handshaked(c);
+
     rev->handler = ngx_http_process_request_line;
     ngx_http_process_request_line(rev);
 }
@@ -1681,6 +1683,8 @@ ngx_http_process_request(ngx_http_request_t *r)
     if (c->read->timer_set) {
         ngx_del_timer(c->read);
     }
+
+    ngx_http_probe_head_read(r);
 
 #if (NGX_STAT_STUB)
     (void) ngx_atomic_fetch_add(ngx_stat_reading, -1);
@@ -2817,6 +2821,8 @@ ngx_http_set_lingering_close(ngx_http_request_t *r)
     rev = c->read;
     rev->handler = ngx_http_lingering_close_handler;
 
+    ngx_http_probe_lingering_close(r);
+
     r->lingering_time = ngx_time() + (time_t) (clcf->lingering_time / 1000);
     ngx_add_timer(rev, clcf->lingering_timeout);
 
@@ -3054,6 +3060,8 @@ ngx_http_free_request(ngx_http_request_t *r, ngx_int_t rc)
 
     r->keepalive = keepalive;
 
+    ngx_http_probe_request_fin(r);
+
 #if (NGX_STAT_STUB)
 
     if (r->stat_reading) {
@@ -3140,6 +3148,8 @@ ngx_http_close_connection(ngx_connection_t *c)
     }
 
 #endif
+
+    ngx_http_probe_close(c);
 
 #if (NGX_STAT_STUB)
     (void) ngx_atomic_fetch_add(ngx_stat_active, -1);

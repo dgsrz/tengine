@@ -176,6 +176,8 @@ ngx_http_read_client_request_body(ngx_http_request_t *r,
                 }
             }
 
+            ngx_http_probe_body_read(r);
+
             post_handler(r);
 
             return NGX_OK;
@@ -439,6 +441,8 @@ ngx_http_do_read_client_request_body(ngx_http_request_t *r)
 
     r->read_event_handler = ngx_http_block_reading;
 
+    ngx_http_probe_body_read(r);
+
     rb->post_handler(r);
 
     return NGX_OK;
@@ -575,6 +579,8 @@ ngx_http_read_non_buffered_client_request_body(ngx_http_request_t *r,
             r->request_length += r->headers_in.content_length_n;
             b->last = r->header_in->pos;
             b->last_buf = 1;
+
+            ngx_http_probe_body_read(r);
 
             post_handler(r);
 
@@ -775,6 +781,8 @@ read_ok:
     if (c->read->timer_set) {
         ngx_del_timer(c->read);
     }
+
+    ngx_http_probe_body_read(r);
 
     r->read_event_handler = ngx_http_block_reading;
 

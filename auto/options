@@ -23,6 +23,9 @@ CPP=
 NGX_OBJS=objs
 
 NGX_DEBUG=NO
+NGX_DTRACE=NO
+DTRACE=dtrace
+HTTP_REQUEST_PROFILE=NO
 NGX_CC_OPT=
 NGX_LD_OPT=
 NGX_EXTEND_LD_OPT=
@@ -646,6 +649,9 @@ use the \"--without-http_limit_conn_module\" option instead"
         --with-cpu-opt=*)                CPU="$value"               ;;
         --with-debug)                    NGX_DEBUG=YES              ;;
 
+        --with-dtrace=*)                 DTRACE="$value"            ;;
+        --with-http_request_profile)     NGX_DTRACE=YES
+                                         HTTP_REQUEST_PROFILE=YES   ;;
         --without-pcre)                  USE_PCRE=DISABLED          ;;
         --with-pcre)                     USE_PCRE=YES               ;;
         --with-pcre=*)                   PCRE="$value"              ;;
@@ -921,6 +927,8 @@ cat << END
   --with-openssl-opt=OPTIONS         set additional build options for OpenSSL
 
   --with-debug                       enable debug logging
+  --with-http_request_profile        enable dtrace USDT probes for HTTP events
+  --with-dtrace=PATH                 set dtrace utility pathname
 
 END
 
