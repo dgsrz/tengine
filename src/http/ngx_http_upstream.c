@@ -1153,6 +1153,8 @@ ngx_http_upstream_connect(ngx_http_request_t *r, ngx_http_upstream_t *u)
     u->state->response_sec = tp->sec;
     u->state->response_msec = tp->msec;
 
+    ngx_http_probe_ups_start(u);
+
     rc = ngx_event_connect_peer(&u->peer);
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
@@ -1449,6 +1451,12 @@ ngx_http_upstream_send_request(ngx_http_request_t *r, ngx_http_upstream_t *u)
 
     rc = ngx_output_chain(&u->output, u->request_sent ? NULL : u->request_bufs);
 
+#if NGX_HTTP_REQUEST_PROFILE
+    if (!c->sent) {
+        ngx_http_probe_ups_connected(u);
+    }
+#endif
+
     u->request_sent = 1;
 
     if (rc == NGX_ERROR) {
@@ -1473,6 +1481,8 @@ ngx_http_upstream_send_request(ngx_http_request_t *r, ngx_http_upstream_t *u)
     }
 
     /* rc == NGX_OK */
+
+    ngx_http_probe_ups_sent(u);
 
     if (c->tcp_nopush == NGX_TCP_NOPUSH_SET) {
         if (ngx_tcp_push(c->fd) == NGX_ERROR) {
@@ -1550,6 +1560,12 @@ ngx_http_upstream_send_non_buffered_request(ngx_http_request_t *r,
     }
 
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+#if NGX_HTTP_REQUEST_PROFILE
+    if (!c->sent) {
+        ngx_http_probe_ups_connected(u);
+    }
+#endif
 
     if (clcf->tcp_nodelay && c->tcp_nodelay == NGX_TCP_NODELAY_UNSET) {
         ngx_log_debug0(NGX_LOG_DEBUG_HTTP, c->log, 0, "upstream tcp_nodelay");
@@ -1731,6 +1747,8 @@ send_done:
     }
 
     /* send all the request body */
+
+    ngx_http_probe_ups_sent(u);
 
     if (!u->store && !r->post_action && !u->conf->ignore_client_abort) {
         r->read_event_handler = ngx_http_upstream_rd_check_broken_connection;
@@ -1923,6 +1941,12 @@ ngx_http_upstream_process_header(ngx_http_request_t *r, ngx_http_upstream_t *u)
             ngx_http_upstream_next(r, u, NGX_HTTP_UPSTREAM_FT_ERROR);
             return;
         }
+
+#if NGX_HTTP_REQUEST_PROFILE
+        if (u->buffer.last == u->buffer.pos) {
+            ngx_http_probe_ups_first_byte(u);
+        }
+#endif
 
         u->buffer.last += n;
 
@@ -3297,6 +3321,8 @@ ngx_http_upstream_next(ngx_http_request_t *r, ngx_http_upstream_t *u,
     }
 #endif
 
+    ngx_http_probe_ups_restart(u);
+
     ngx_http_upstream_connect(r, u);
 }
 
@@ -3330,6 +3356,8 @@ ngx_http_upstream_finalize_request(ngx_http_request_t *r,
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "finalize http upstream request: %i", rc);
+
+    ngx_http_probe_ups_fin(u);
 
     if (u->cleanup) {
         *u->cleanup = NULL;

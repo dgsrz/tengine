@@ -237,9 +237,11 @@ ngx_http_write_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
     chain = c->send_chain(c, r->out, limit);
 
+#if NGX_HTTP_REQUEST_PROFILE
     if (!sent && c->sent) {
         ngx_http_probe_first_byte(r);
     }
+#endif
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, c->log, 0,
                    "http write filter %p", chain);
