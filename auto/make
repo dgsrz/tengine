@@ -235,6 +235,11 @@ END
 
     done
 
+    for ngx_dtrace_tapset in $NGX_DTRACE_TAPSET
+    do
+        ngx_dtrace_target=`echo $ngx_dtrace_tapset | sed -e "s/^.*\/\(.*\)\.stp/\1/g"`
+        ngx_deps="$ngx_deps$ngx_long_cont$NGX_OBJS${ngx_dirsep}$ngx_dtrace_target.stp"
+    done
 fi
 
 

@@ -53,6 +53,16 @@ case ".$NGX_PID_PATH" in
 esac
 
 
+case ".$NGX_TAPSET_PATH" in 
+    ./* | .) 
+    ;; 
+ 
+    *) 
+        NGX_TAPSET_PATH=$NGX_PREFIX/$NGX_TAPSET_PATH 
+    ;; 
+esac
+
+
 case ".$NGX_ERROR_LOG_PATH" in
     ./* | .)
     ;;
@@ -247,6 +257,17 @@ END
 fi
 
 
+if [ $NGX_DTRACE = YES ]; then
+    cat << END                                                >> $NGX_MAKEFILE
+
+	test -d '\$(DESTDIR)`dirname "$NGX_TAPSET_PATH"`' || \
+	mkdir -p '\$(DESTDIR)`dirname "$NGX_TAPSET_PATH"`'
+	cp $NGX_OBJS/nginx.stp '\$(DESTDIR)$NGX_TAPSET_PATH'
+END
+
+fi
+
+
 if test -n "$NGX_ERROR_LOG_PATH"; then
     cat << END                                                >> $NGX_MAKEFILE
 
@@ -323,3 +344,21 @@ upgrade:
 
 	kill -QUIT \`cat $NGX_PID_PATH.oldbin\`
 END
+
+
+if [ $NGX_DTRACE = YES ]; then
+
+    for ngx_dtrace_tapset in $NGX_DTRACE_TAPSET
+    do
+        ngx_dtrace_target=`echo $ngx_dtrace_tapset | sed -e "s/^.*\/\(.*\)\.stp/\1/g"`
+        echo $ngx_sbin_path
+
+        cat << END                                                >> $NGX_MAKEFILE
+
+$NGX_OBJS${ngx_dirsep}$ngx_dtrace_target.stp: $ngx_dtrace_tapset
+	sed -e "s:NGX_SBIN_PATH:$NGX_SBIN_PATH:g" $ngx_dtrace_tapset > $NGX_OBJS${ngx_dirsep}$ngx_dtrace_target.stp
+
+END
+
+    done
+fi

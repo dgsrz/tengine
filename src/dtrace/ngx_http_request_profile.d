@@ -12,10 +12,16 @@ provider nginx {
     probe http_probe_request_fin(ngx_http_request_t *r);
     probe http_probe_lingering_close(ngx_http_request_t *r);
 
-    probe http_probe_upstream_start(ngx_http_upstream_t *u);
-    probe http_probe_upstream_connected(ngx_http_upstream_t *u);
-    probe http_probe_upstream_sent(ngx_http_upstream_t *u);
-    probe http_probe_upstream_first_byte(ngx_http_upstream_t *u);
-    probe http_probe_upstream_fin(ngx_http_upstream_t *u);
-    probe http_probe_upstream_restart(ngx_http_upstream_t *u);
+    probe http_probe_upstream_start(ngx_http_request_t *r,
+                                    ngx_http_upstream_t *u);
+    probe http_probe_upstream_connected(ngx_http_request_t *r,
+                                        ngx_http_upstream_t *u);
+    probe http_probe_upstream_sent(ngx_http_request_t *r,
+                                   ngx_http_upstream_t *u);
+    probe http_probe_upstream_first_byte(ngx_http_request_t *r,
+                                         ngx_http_upstream_t *u);
+    probe http_probe_upstream_fin(ngx_http_request_t *r,
+                                  ngx_http_upstream_t *u);
+    probe http_probe_upstream_restart(ngx_http_request_t *r,
+                                      ngx_http_upstream_t *u);
 };

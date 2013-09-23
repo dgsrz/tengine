@@ -897,6 +897,7 @@ fi
 
 if [ $HTTP_REQUEST_PROFILE = YES ]; then
     NGX_DTRACE_SRC="$NGX_DTRACE_SRC src/dtrace/ngx_http_request_profile.d"
+    NGX_DTRACE_TAPSET="$NGX_DTRACE_TAPSET src/dtrace/ngx_http_request_profile.stp"
     HTTP_DEPS="$HTTP_DEPS objs/ngx_http_request_profile_provider.h"
     CORE_DEPS="$CORE_DEPS objs/ngx_http_request_profile_provider.h"
     EVENT_DEPS="$EVENT_DEPS objs/ngx_http_request_profile_provider.h"
