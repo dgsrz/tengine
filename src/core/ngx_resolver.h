@@ -18,6 +18,7 @@
 #define NGX_RESOLVE_PTR       12
 #define NGX_RESOLVE_MX        15
 #define NGX_RESOLVE_TXT       16
+#define NGX_RESOLVE_SRV       33
 #define NGX_RESOLVE_DNAME     39
 
 #define NGX_RESOLVE_FORMERR   1
@@ -105,6 +106,8 @@ typedef struct {
     time_t                    valid;
 
     ngx_uint_t                log_level;
+
+    ngx_resolver_ctx_t       *ctx;
 } ngx_resolver_t;
 
 
@@ -128,9 +131,15 @@ struct ngx_resolver_ctx_s {
     void                     *data;
     ngx_msec_t                timeout;
 
-    ngx_uint_t                quick;  /* unsigned  quick:1; */
+    unsigned                  quick:1;
+    unsigned                  srv:1;
+    unsigned                  srv_done:1;
     ngx_uint_t                recursion;
     ngx_event_t              *event;
+
+    /* used for SRV */
+    ngx_str_t                 prefix;  /* eg: ._http._tcp */
+    ngx_str_t                 postfix; /* eg: .image.taobao.com */
 };
 
 

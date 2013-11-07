@@ -73,6 +73,9 @@ static void ngx_resolver_process_a(ngx_resolver_t *r, u_char *buf, size_t n,
     ngx_uint_t ident, ngx_uint_t code, ngx_uint_t nan, ngx_uint_t ans);
 static void ngx_resolver_process_ptr(ngx_resolver_t *r, u_char *buf, size_t n,
     ngx_uint_t ident, ngx_uint_t code, ngx_uint_t nan);
+static void ngx_resolver_process_srv(ngx_resolver_t *r, u_char *buf, size_t n,
+    ngx_uint_t ident, ngx_uint_t code, ngx_uint_t nan, ngx_uint_t nns,
+    ngx_uint_t nar, ngx_uint_t ans);
 static ngx_resolver_node_t *ngx_resolver_lookup_name(ngx_resolver_t *r,
     ngx_str_t *name, uint32_t hash);
 static ngx_resolver_node_t *ngx_resolver_lookup_addr(ngx_resolver_t *r,
@@ -946,6 +949,7 @@ ngx_resolver_resend_handler(ngx_event_t *ev)
 
     if (timer) {
         ngx_add_timer(r->event, (ngx_msec_t) (timer * 1000));
+                                 / + sizeof(ngx_resolver_qs_t));
     }
 }
 
@@ -1024,7 +1028,7 @@ ngx_resolver_process_response(ngx_resolver_t *r, u_char *buf, size_t n)
     char                  *err;
     size_t                 len;
     ngx_uint_t             i, times, ident, qident, flags, code, nqs, nan,
-                           qtype, qclass;
+                           nns, nar, qtype, qclass;
     ngx_queue_t           *q;
     ngx_resolver_qs_t     *qs;
     ngx_resolver_node_t   *rn;
@@ -1133,6 +1137,16 @@ found:
 
         ngx_resolver_process_a(r, buf, n, ident, code, nan,
                                i + sizeof(ngx_resolver_qs_t));
+
+        break;
+
+    case NGX_RESOLVE_SRV:
+
+        nns = (query->nns_hi << 8) + query->nns_lo;
+        nar = (query->nar_hi << 8) + query->nar_lo;
+
+        ngx_resolver_process_srv(r, buf, n, ident, code, nan, nns, nar,
+                                 i + sizeof(ngx_resolver_qs_t));
 
         break;
 
@@ -1802,7 +1816,8 @@ ngx_resolver_create_name_query(ngx_resolver_node_t *rn, ngx_resolver_ctx_t *ctx)
     ngx_resolver_qs_t     *qs;
     ngx_resolver_query_t  *query;
 
-    nlen = ctx->name.len ? (1 + ctx->name.len + 1) : 1;
+    nlen = ctx->name.len ? (1 + ctx->name.len + 1) : 1
+         + ctx->srv ? (ctx->prefix.len + ctx->postfix.len) : 0;
 
     len = sizeof(ngx_resolver_query_t) + nlen + sizeof(ngx_resolver_qs_t);
 
@@ -1849,8 +1864,30 @@ ngx_resolver_create_name_query(ngx_resolver_node_t *rn, ngx_resolver_ctx_t *ctx)
     p--;
     *p-- = '\0';
 
-    if (ctx->name.len == 0)  {
+    if (ctx->name.len == 0) {
         return NGX_DECLINED;
+    }
+
+    if (ctx->srv) {
+        for (s = ctx->postfix.data + ctx->postfix.len - 1;
+             s >= ctx->postfix.data;
+             s--)
+        {
+            if (*s != '.') {
+                *p = *s;
+                len++;
+
+            } else {
+                if (len == 0 || len > 255) {
+                    return NGX_DECLINED;
+                }
+
+                *p = (u_char) len;
+                len = 0;
+            }
+
+            p--;
+        }
     }
 
     for (s = ctx->name.data + ctx->name.len - 1; s >= ctx->name.data; s--) {
@@ -1875,6 +1912,31 @@ ngx_resolver_create_name_query(ngx_resolver_node_t *rn, ngx_resolver_ctx_t *ctx)
     }
 
     *p = (u_char) len;
+
+    if (ctx->srv) {
+        for (s = ctx->prefix.data + ctx->prefix.len - 1;
+             s >= ctx->prefix.data;
+             s--)
+        {
+            if (*s != '.') {
+                *p = *s;
+                len++;
+
+            } else {
+                if (len == 0 || len > 255) {
+                    return NGX_DECLINED;
+                }
+
+                *p = (u_char) len;
+                len = 0;
+            }
+
+            p--;
+        }
+
+        ctx->resolver->ctx = ctx;
+        ctx->srv_done = 0;
+    }
 
     return NGX_OK;
 }
@@ -2310,4 +2372,330 @@ ngx_udp_connect(ngx_udp_connection_t *uc)
     }
 
     return NGX_OK;
+}
+
+
+static void
+ngx_resolver_process_srv(ngx_resolver_t *r, u_char *buf, size_t n,
+    ngx_uint_t ident, ngx_uint_t code, ngx_uint_t nan, ngx_uint_t nns,
+    ngx_uint_t nar, ngx_uint_t ans)
+{
+    char                 *err;
+    u_char               *cname;
+    size_t                len;
+    int32_t               ttl;
+    uint32_t              hash;
+    in_addr_t             addr, *addrs;
+    ngx_str_t             name, oname;
+    ngx_uint_t            qtype, qident, naddrs, a, i, n, start;
+    ngx_resolver_an_t    *an;
+    ngx_resolver_ctx_t   *ctx, *next;
+    ngx_resolver_node_t  *rn;
+
+    if (ngx_resolver_copy(r, &name, buf, &buf[12], &buf[last]) != NGX_OK) {
+        return;
+    }
+
+    ngx_log_debug1(NGX_LOG_DEBUG_CORE, r->log, 0, "resolver qs:%V", &name);
+
+    if (name.len <= r->ctx->prefix.len + r->ctx->postfix.len) {
+        ngx_log_error(r->log_level, r->log, 0,
+                      "unexpected response for %V", &name);
+        goto failed;
+    }
+
+    oname.data = name.data + r->ctx->prefix.len;
+    oname.len = name.len - r->ctx->postfix.len - r->ctx->prefix.len;
+    hash = ngx_crc32_short(oname.data, oname.len);
+
+    /* lock name mutex */
+
+    rn = ngx_resolver_lookup_name(r, &oname, hash);
+
+    if (rn == NULL || rn->query == NULL) {
+        ngx_log_error(r->log_level, r->log, 0,
+                      "unexpected response for %V", &name);
+        goto failed;
+    }
+
+    qident = (rn->query[0] << 8) + rn->query[1];
+
+    if (ident != qident) {
+        ngx_log_error(r->log_level, r->log, 0,
+                      "wrong ident %ui response for %V, expect %ui",
+                      ident, &name, qident);
+        goto failed;
+    }
+
+    ngx_resolver_free(r, name.data);
+
+    if (code == 0 && nan == 0) {
+        code = 3; /* NXDOMAIN */
+    }
+
+    if (code) {
+        next = rn->waiting;
+        rn->waiting = NULL;
+
+        ngx_queue_remove(&rn->queue);
+
+        ngx_rbtree_delete(&r->name_rbtree, &rn->node);
+
+        ngx_resolver_free_node(r, rn);
+
+        /* unlock name mutex */
+
+        while (next) {
+             ctx = next;
+             ctx->state = code;
+             next = ctx->next;
+
+             ctx->handler(ctx);
+        }
+
+        return;
+    }
+
+    i = ans;
+    naddrs = 0;
+    addr = 0;
+    addrs = NULL;
+    cname = NULL;
+    qtype = 0;
+    ttl = 0;
+
+    for (a = 0; a < nan; a++) {
+
+        start = i;
+
+        while (i < last) {
+
+            if (buf[i] & 0xc0) {
+                i += 2;
+                goto found;
+            }
+
+            if (buf[i] == 0) {
+                i++;
+                goto test_length;
+            }
+
+            i += 1 + buf[i];
+        }
+
+        goto short_response;
+
+    test_length:
+
+        if (i - start < 2) {
+            err = "invalid name in dns response";
+            goto invalid;
+        }
+
+    found:
+
+        if (i + sizeof(ngx_resolver_an_t) >= last) {
+            goto short_response;
+        }
+
+        an = (ngx_resolver_an_t *) &buf[i];
+
+        qtype = (an->type_hi << 8) + an->type_lo;
+        len = (an->len_hi << 8) + an->len_lo;
+        ttl = (an->ttl[0] << 24) + (an->ttl[1] << 16)
+            + (an->ttl[2] << 8) + (an->ttl[3]);
+
+        if (ttl < 0) {
+            ttl = 0;
+        }
+
+        if (qtype == NGX_RESOLVE_A) {
+
+            i += sizeof(ngx_resolver_an_t);
+
+            if (i + len > last) {
+                goto short_response;
+            }
+
+            addr = htonl((buf[i] << 24) + (buf[i + 1] << 16)
+                         + (buf[i + 2] << 8) + (buf[i + 3]));
+
+            naddrs++;
+
+            i += len;
+
+        } else if (qtype == NGX_RESOLVE_CNAME) {
+            cname = &buf[i] + sizeof(ngx_resolver_an_t);
+            i += sizeof(ngx_resolver_an_t) + len;
+
+        } else if (qtype == NGX_RESOLVE_DNAME) {
+            i += sizeof(ngx_resolver_an_t) + len;
+
+        } else {
+            ngx_log_error(r->log_level, r->log, 0,
+                          "unexpected qtype %ui", qtype);
+        }
+    }
+
+    ngx_log_debug3(NGX_LOG_DEBUG_CORE, r->log, 0,
+                   "resolver naddrs:%ui cname:%p ttl:%d",
+                   naddrs, cname, ttl);
+
+    if (naddrs) {
+
+        if (naddrs == 1) {
+            rn->u.addr = addr;
+
+        } else {
+
+            addrs = ngx_resolver_alloc(r, naddrs * sizeof(in_addr_t));
+            if (addrs == NULL) {
+                return;
+            }
+
+            n = 0;
+            i = ans;
+
+            for (a = 0; a < nan; a++) {
+
+                for ( ;; ) {
+
+                    if (buf[i] & 0xc0) {
+                        i += 2;
+                        goto ok;
+                    }
+
+                    if (buf[i] == 0) {
+                        i++;
+                        goto ok;
+                    }
+
+                    i += 1 + buf[i];
+                }
+
+            ok:
+
+                an = (ngx_resolver_an_t *) &buf[i];
+
+                qtype = (an->type_hi << 8) + an->type_lo;
+                len = (an->len_hi << 8) + an->len_lo;
+
+                i += sizeof(ngx_resolver_an_t);
+
+                if (qtype == NGX_RESOLVE_A) {
+
+                    addrs[n++] = htonl((buf[i] << 24) + (buf[i + 1] << 16)
+                                       + (buf[i + 2] << 8) + (buf[i + 3]));
+
+                    if (n == naddrs) {
+                        break;
+                    }
+                }
+
+                i += len;
+            }
+
+            rn->u.addrs = addrs;
+
+            addrs = ngx_resolver_dup(r, rn->u.addrs,
+                                     naddrs * sizeof(in_addr_t));
+            if (addrs == NULL) {
+                return;
+            }
+        }
+
+        rn->naddrs = (u_short) naddrs;
+
+        ngx_queue_remove(&rn->queue);
+
+        rn->valid = ngx_time() + (r->valid ? r->valid : ttl);
+        rn->expire = ngx_time() + r->expire;
+
+        ngx_queue_insert_head(&r->name_expire_queue, &rn->queue);
+
+        next = rn->waiting;
+        rn->waiting = NULL;
+
+        /* unlock name mutex */
+
+        while (next) {
+             ctx = next;
+             ctx->state = NGX_OK;
+             ctx->naddrs = naddrs;
+             ctx->addrs = (naddrs == 1) ? &ctx->addr : addrs;
+             ctx->addr = addr;
+             next = ctx->next;
+
+             ctx->handler(ctx);
+        }
+
+        if (naddrs > 1) {
+            ngx_resolver_free(r, addrs);
+        }
+
+        ngx_resolver_free(r, rn->query);
+        rn->query = NULL;
+
+        return;
+
+    } else if (cname) {
+
+        /* CNAME only */
+
+        if (ngx_resolver_copy(r, &name, buf, cname, &buf[last]) != NGX_OK) {
+            return;
+        }
+
+        ngx_log_debug1(NGX_LOG_DEBUG_CORE, r->log, 0,
+                       "resolver cname:\"%V\"", &name);
+
+        ngx_queue_remove(&rn->queue);
+
+        rn->cnlen = (u_short) name.len;
+        rn->u.cname = name.data;
+
+        rn->valid = ngx_time() + (r->valid ? r->valid : ttl);
+        rn->expire = ngx_time() + r->expire;
+
+        ngx_queue_insert_head(&r->name_expire_queue, &rn->queue);
+
+        ctx = rn->waiting;
+        rn->waiting = NULL;
+
+        if (ctx) {
+            ctx->name = name;
+
+            (void) ngx_resolve_name_locked(r, ctx);
+        }
+
+        ngx_resolver_free(r, rn->query);
+        rn->query = NULL;
+
+        return;
+    }
+
+    ngx_log_error(r->log_level, r->log, 0,
+               "no A or CNAME types in DNS responses, unknown query type: %ui",
+               qtype);
+    return;
+
+short_response:
+
+    err = "short dns response";
+
+invalid:
+
+    /* unlock name mutex */
+
+    ngx_log_error(r->log_level, r->log, 0, err);
+
+    return;
+
+failed:
+
+    /* unlock name mutex */
+
+    ngx_resolver_free(r, name.data);
+
+    return;
 }
